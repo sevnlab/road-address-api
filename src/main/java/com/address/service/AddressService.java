@@ -1,12 +1,15 @@
 package com.address.service;
 
 import com.address.dto.AddressRequest;
+import com.address.dto.AddressResponse;
 import com.address.dto.SearchResult;
 import com.address.repository.AddressRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 @Service
 @RequiredArgsConstructor
@@ -28,12 +31,18 @@ public class AddressService {
         int offset       = (currentPage - 1) * countPerPage;
         String kw        = keyword.trim();
 
-        SearchResult result = addressRepository.search(kw, countPerPage, offset);
+        CompletableFuture<Integer> countFuture =
+                CompletableFuture.supplyAsync(() -> addressRepository.count(kw));
+        CompletableFuture<List<AddressResponse>> searchFuture =
+                CompletableFuture.supplyAsync(() -> addressRepository.search(kw, countPerPage, offset));
+
+        CompletableFuture.allOf(countFuture, searchFuture).join();
+
         return SearchResult.builder()
-                .totalCount(result.getTotalCount())
+                .totalCount(countFuture.join())
                 .currentPage(currentPage)
                 .countPerPage(countPerPage)
-                .results(result.getResults())
+                .results(searchFuture.join())
                 .build();
     }
 }

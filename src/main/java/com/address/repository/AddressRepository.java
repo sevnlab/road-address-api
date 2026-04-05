@@ -18,14 +18,6 @@ public class AddressRepository {
 
     private final JdbcTemplate jdbcTemplate;
 
-    // road_address 실제 컬럼 매핑
-    // building_type  = 건물본번  (cols[12])
-    // is_apartment   = 건물부번  (cols[13])
-    // is_bulk        = 지하여부  (cols[11])
-    // change_reason  = 공동주택여부 (cols[19])
-    // underground    = 산여부    (cols[6])
-    // building_name  = 건물명    (cols[22])
-    // col22          = 건물명2   (cols[21])
     private static final String SELECT_PART = """
             SELECT
                 A.zip_code,
@@ -87,15 +79,21 @@ public class AddressRepository {
                 A.effective_date AS notice_date,
                 A.change_reason  AS is_apartment,
                 A.col21          AS building_ledger,
-                A.building_name,
-                COUNT(*) OVER()  AS total_count
+                A.building_name
             FROM road_address A
             """;
 
-    public SearchResult search(String keyword, int limit, int offset) {
+    public int count(String keyword) {
         WhereClause where = buildWhere(keyword);
-        if (where == null) return SearchResult.builder()
-                .totalCount(0).results(Collections.emptyList()).build();
+        if (where == null) return 0;
+        String sql = "SELECT COUNT(*) FROM road_address A " + where.sql;
+        Integer result = jdbcTemplate.queryForObject(sql, Integer.class, where.params.toArray());
+        return result != null ? result : 0;
+    }
+
+    public List<AddressResponse> search(String keyword, int limit, int offset) {
+        WhereClause where = buildWhere(keyword);
+        if (where == null) return Collections.emptyList();
 
         String sql = SELECT_PART + where.sql + " LIMIT ? OFFSET ?";
         List<Object> params = new ArrayList<>(where.params);
@@ -104,41 +102,34 @@ public class AddressRepository {
 
         log.debug("검색 - keyword: {}", keyword);
 
-        final int[] totalCount = {0};
-        List<AddressResponse> results = jdbcTemplate.query(sql, (rs, rowNum) -> {
-            if (totalCount[0] == 0) totalCount[0] = rs.getInt("total_count");
-            return AddressResponse.builder()
-                    .zipCode(rs.getString("zip_code"))
-                    .roadAddress(rs.getString("road_address"))
-                    .mgmtNo(rs.getString("mgmt_no"))
-                    .bupjungdongCode(rs.getString("bupjungdong_code"))
-                    .sido(rs.getString("sido"))
-                    .sigungu(rs.getString("sigungu"))
-                    .eupmyeondong(rs.getString("eupmyeondong"))
-                    .ri(rs.getString("ri"))
-                    .san(rs.getString("san"))
-                    .roadCode(rs.getString("road_code"))
-                    .roadName(rs.getString("road_name"))
-                    .underground(rs.getString("underground"))
-                    .buildingNo(rs.getInt("building_no"))
-                    .buildingSubNo(rs.getInt("building_sub_no"))
-                    .adminCode(rs.getString("admin_code"))
-                    .adminDong(rs.getString("admin_dong"))
-                    .moveReasonCode(rs.getString("move_reason_code"))
-                    .noticeDate(rs.getString("notice_date"))
-                    .isApartment(rs.getString("is_apartment"))
-                    .buildingLedger(rs.getString("building_ledger"))
-                    .buildingName(rs.getString("building_name"))
-                    .jibunAddress(rs.getString("jibun_address"))
-                    .jibunNo(rs.getInt("jibun_no"))
-                    .jibunSubNo(rs.getInt("jibun_sub_no"))
-                    .build();
-        }, params.toArray());
-
-        return SearchResult.builder()
-                .totalCount(totalCount[0])
-                .results(results)
-                .build();
+        return jdbcTemplate.query(sql, (rs, rowNum) ->
+                AddressResponse.builder()
+                        .zipCode(rs.getString("zip_code"))
+                        .roadAddress(rs.getString("road_address"))
+                        .jibunAddress(rs.getString("jibun_address"))
+                        .mgmtNo(rs.getString("mgmt_no"))
+                        .bupjungdongCode(rs.getString("bupjungdong_code"))
+                        .sido(rs.getString("sido"))
+                        .sigungu(rs.getString("sigungu"))
+                        .eupmyeondong(rs.getString("eupmyeondong"))
+                        .ri(rs.getString("ri"))
+                        .san(rs.getString("san"))
+                        .roadCode(rs.getString("road_code"))
+                        .roadName(rs.getString("road_name"))
+                        .underground(rs.getString("underground"))
+                        .buildingNo(rs.getInt("building_no"))
+                        .buildingSubNo(rs.getInt("building_sub_no"))
+                        .jibunNo(rs.getInt("jibun_no"))
+                        .jibunSubNo(rs.getInt("jibun_sub_no"))
+                        .adminCode(rs.getString("admin_code"))
+                        .adminDong(rs.getString("admin_dong"))
+                        .moveReasonCode(rs.getString("move_reason_code"))
+                        .noticeDate(rs.getString("notice_date"))
+                        .isApartment(rs.getString("is_apartment"))
+                        .buildingLedger(rs.getString("building_ledger"))
+                        .buildingName(rs.getString("building_name"))
+                        .build(),
+                params.toArray());
     }
 
     private WhereClause buildWhere(String keyword) {
@@ -163,10 +154,10 @@ public class AddressRepository {
 
         for (String text : textTokens) {
             sql.append("""
-                     AND (A.sido          LIKE ?
-                          OR A.sigungu    LIKE ?
+                     AND (A.sido            LIKE ?
+                          OR A.sigungu      LIKE ?
                           OR A.eupmyeondong LIKE ?
-                          OR A.road_name  LIKE ?
+                          OR A.road_name    LIKE ?
                           OR A.building_name LIKE ?)
                     """);
             String p = text + "%";
@@ -179,7 +170,7 @@ public class AddressRepository {
         }
 
         if (buildingNo != null) {
-            sql.append(" AND A.building_type = ?");  // building_type = 실제 건물본번
+            sql.append(" AND A.building_type = ?");
             params.add(buildingNo);
         }
 
