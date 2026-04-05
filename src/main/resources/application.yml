@@ -11,4 +11,11 @@ spring:
 
 address:
   db:
-    path: # SQLite DB 파일 경로 (예: C:/data/address.db)
+    path: D:/work_space/address/data/address.db
+#    path: D:/work_space/address/data/rnaddrkor_address.db
+#  data:
+#    path: D:/work_space/data
+
+logging:
+  level:
+    com.address: DEBUG
