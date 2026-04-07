@@ -132,18 +132,48 @@ public class AddressRepository {
                 params.toArray());
     }
 
+    // 텍스트+숫자 혼합 토큰 파싱용 패턴 (예: 통일로767, 통일로767-1, 진흥로50-8)
+    // [^0-9\-] : 숫자도 대시도 아닌 문자(한글 등)로 텍스트 부분이 끝나야 올바르게 분리됨
+    private static final java.util.regex.Pattern MIXED_TOKEN =
+            java.util.regex.Pattern.compile("^(.*[^0-9\\-])(\\d+)(?:-(\\d+))?$");
+
+    // 도로 가지번호 토큰 패턴 (예: 57길, 12로, 3번길) - 앞 텍스트 토큰에 합체
+    private static final java.util.regex.Pattern ROAD_BRANCH_TOKEN =
+            java.util.regex.Pattern.compile("^\\d+(?:대로|번길|번가|[로길가])$");
+
     private WhereClause buildWhere(String keyword) {
         List<String> textTokens = new ArrayList<>();
         String zipCode = null;
         Integer buildingNo = null;
+        Integer buildingSubNo = null;
 
         for (String token : keyword.trim().split("\\s+")) {
             if (token.matches("\\d{5}")) {
+                // 우편번호
                 zipCode = token;
             } else if (token.matches("\\d+")) {
+                // 본번만 (예: 767)
                 buildingNo = Integer.parseInt(token);
+            } else if (token.matches("\\d+-\\d+")) {
+                // 본번-부번 (예: 767-1)
+                String[] parts = token.split("-", 2);
+                buildingNo = Integer.parseInt(parts[0]);
+                buildingSubNo = Integer.parseInt(parts[1]);
             } else {
-                textTokens.add(token);
+                // 텍스트 또는 텍스트+숫자 혼합 (예: 통일로767, 통일로767-1)
+                java.util.regex.Matcher m = MIXED_TOKEN.matcher(token);
+                if (m.matches()) {
+                    textTokens.add(m.group(1));
+                    buildingNo = Integer.parseInt(m.group(2));
+                    if (m.group(3) != null) {
+                        buildingSubNo = Integer.parseInt(m.group(3));
+                    }
+                } else if (ROAD_BRANCH_TOKEN.matcher(token).matches() && !textTokens.isEmpty()) {
+                    // "57길", "12로", "3번길" 등 가지번호 → 앞 텍스트에 붙임 (예: "통일로"+"57길" → "통일로57길")
+                    textTokens.set(textTokens.size() - 1, textTokens.get(textTokens.size() - 1) + token);
+                } else {
+                    textTokens.add(token);
+                }
             }
         }
 
@@ -169,9 +199,14 @@ public class AddressRepository {
             params.add(zipCode);
         }
 
-        if (buildingNo != null) {
-            sql.append(" AND A.building_type = ?");
-            params.add(buildingNo);
+        // 건물번호: 도로명 본번(building_type) OR 지번 본번(building_no) 둘 다 검색
+        if (buildingNo != null && buildingSubNo != null) {
+            sql.append(" AND ((A.building_type = ? AND A.is_apartment = ?) OR (A.building_no = ? AND A.building_sub = ?))");
+            params.add(buildingNo); params.add(buildingSubNo);
+            params.add(buildingNo); params.add(buildingSubNo);
+        } else if (buildingNo != null) {
+            sql.append(" AND (A.building_type = ? OR A.building_no = ?)");
+            params.add(buildingNo); params.add(buildingNo);
         }
 
         return new WhereClause(sql.toString(), params);
